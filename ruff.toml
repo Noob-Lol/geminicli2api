@@ -1,0 +1,6 @@
+[lint]
+select = ["C4", "E", "W", "F", "UP", "B", "COM", "I", "ASYNC", "Q"]
+ignore = ["E501", "S104"]
+preview = true
+[format]
+preview = true

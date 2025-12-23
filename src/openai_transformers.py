@@ -2,46 +2,46 @@
 OpenAI Format Transformers - Handles conversion between OpenAI and Gemini API formats.
 This module contains all the logic for transforming requests and responses between the two formats.
 """
-import json
+
+import re
 import time
 import uuid
-import re
-from typing import Dict, Any
+from typing import Any
 
-from .models import OpenAIChatCompletionRequest, OpenAIChatCompletionResponse
 from .config import (
     DEFAULT_SAFETY_SETTINGS,
-    is_search_model,
     get_base_model_name,
     get_thinking_budget,
-    should_include_thoughts,
+    is_maxthinking_model,
     is_nothinking_model,
-    is_maxthinking_model
+    is_search_model,
+    should_include_thoughts,
 )
+from .models import OpenAIChatCompletionRequest
 
 
-def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dict[str, Any]:
+def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> dict[str, Any]:
     """
     Transform an OpenAI chat completion request to Gemini format.
-    
+
     Args:
         openai_request: OpenAI format request
-        
+
     Returns:
         Dictionary in Gemini API format
     """
     contents = []
-    
+
     # Process each message in the conversation
     for message in openai_request.messages:
         role = message.role
-        
+
         # Map OpenAI roles to Gemini roles
         if role == "assistant":
             role = "model"
         elif role == "system":
             role = "user"  # Gemini treats system messages as user messages
-        
+
         # Handle different content types (string vs list of parts)
         if isinstance(message.content, list):
             parts = []
@@ -49,7 +49,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                 if part.get("type") == "text":
                     text_value = part.get("text", "") or ""
                     # Extract Markdown images (data URIs) into inline image parts, preserving surrounding text
-                    pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+                    pattern = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
                     matches = list(pattern.finditer(text_value))
                     if not matches:
                         parts.append({"text": text_value})
@@ -59,7 +59,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                             url = m.group(1).strip().strip('"').strip("'")
                             # Emit text before the image
                             if m.start() > last_idx:
-                                before = text_value[last_idx:m.start()]
+                                before = text_value[last_idx : m.start()]
                                 if before:
                                     parts.append({"text": before})
                             # Handle data URI images: data:image/png;base64,xxxx
@@ -75,18 +75,18 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                                         parts.append({
                                             "inlineData": {
                                                 "mimeType": mime_type,
-                                                "data": base64_data
-                                            }
+                                                "data": base64_data,
+                                            },
                                         })
                                     else:
                                         # Non-image data URIs: keep as markdown text
-                                        parts.append({"text": text_value[m.start():m.end()]})
+                                        parts.append({"text": text_value[m.start() : m.end()]})
                                 except Exception:
                                     # Fallback: keep original markdown as text if parsing fails
-                                    parts.append({"text": text_value[m.start():m.end()]})
+                                    parts.append({"text": text_value[m.start() : m.end()]})
                             else:
                                 # Non-data URIs: keep markdown as text (cannot inline without fetching)
-                                parts.append({"text": text_value[m.start():m.end()]})
+                                parts.append({"text": text_value[m.start() : m.end()]})
                             last_idx = m.end()
                         # Tail text after last image
                         if last_idx < len(text_value):
@@ -104,8 +104,8 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                             parts.append({
                                 "inlineData": {
                                     "mimeType": mime_type,
-                                    "data": base64_data
-                                }
+                                    "data": base64_data,
+                                },
                             })
                         except ValueError:
                             continue
@@ -115,13 +115,13 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
             text = message.content or ""
             parts = []
             # Convert Markdown images: ![alt](data:<mimeType>;base64,<data>)
-            pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+            pattern = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
             last_idx = 0
             for m in pattern.finditer(text):
                 url = m.group(1).strip().strip('"').strip("'")
                 # Emit text before the image
                 if m.start() > last_idx:
-                    before = text[last_idx:m.start()]
+                    before = text[last_idx : m.start()]
                     if before:
                         parts.append({"text": before})
                 # Handle data URI images: data:image/png;base64,xxxx
@@ -137,18 +137,18 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                             parts.append({
                                 "inlineData": {
                                     "mimeType": mime_type,
-                                    "data": base64_data
-                                }
+                                    "data": base64_data,
+                                },
                             })
                         else:
                             # Non-image data URIs: keep as markdown text
-                            parts.append({"text": text[m.start():m.end()]})
+                            parts.append({"text": text[m.start() : m.end()]})
                     except Exception:
                         # Fallback: keep original markdown as text if parsing fails
-                        parts.append({"text": text[m.start():m.end()]})
+                        parts.append({"text": text[m.start() : m.end()]})
                 else:
                     # Non-data URIs: keep markdown as text (cannot inline without fetching)
-                    parts.append({"text": text[m.start():m.end()]})
+                    parts.append({"text": text[m.start() : m.end()]})
                 last_idx = m.end()
             # Tail text after last image
             if last_idx < len(text):
@@ -156,7 +156,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                 if tail:
                     parts.append({"text": tail})
             contents.append({"role": role, "parts": parts if parts else [{"text": text}]})
-    
+
     # Map OpenAI generation parameters to Gemini format
     generation_config = {}
     if openai_request.temperature is not None:
@@ -187,7 +187,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         # Handle JSON mode if specified
         if openai_request.response_format.get("type") == "json_object":
             generation_config["responseMimeType"] = "application/json"
-    
+
     # generation_config["enableEnhancedCivicAnswers"] = False
 
     # Build the request payload
@@ -195,24 +195,24 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         "contents": contents,
         "generationConfig": generation_config,
         "safetySettings": DEFAULT_SAFETY_SETTINGS,
-        "model": get_base_model_name(openai_request.model)  # Use base model name for API call
+        "model": get_base_model_name(openai_request.model),  # Use base model name for API call
     }
-    
+
     # Add Google Search grounding for search models
     if is_search_model(openai_request.model):
         request_payload["tools"] = [{"googleSearch": {}}]
-    
+
     if "gemini-2.5-flash-image" not in openai_request.model:
         # Add thinking configuration for thinking models
         thinking_budget = None
-        
+
         # Check if model is an explicit thinking variant (nothinking or maxthinking)
         if is_nothinking_model(openai_request.model) or is_maxthinking_model(openai_request.model):
             # For explicit thinking variants, ignore reasoning_effort and use variant-specific budget
             thinking_budget = get_thinking_budget(openai_request.model)
         else:
             # For regular models, check if reasoning_effort was provided in the request
-            reasoning_effort = getattr(openai_request, 'reasoning_effort', None)
+            reasoning_effort = getattr(openai_request, "reasoning_effort", None)
             if reasoning_effort:
                 base_model = get_base_model_name(openai_request.model)
                 if reasoning_effort == "minimal":
@@ -236,41 +236,41 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
             else:
                 # No reasoning_effort provided, use default thinking budget
                 thinking_budget = get_thinking_budget(openai_request.model)
-        
+
         if thinking_budget is not None:
             request_payload["generationConfig"]["thinkingConfig"] = {
                 "thinkingBudget": thinking_budget,
-                "includeThoughts": should_include_thoughts(openai_request.model)
+                "includeThoughts": should_include_thoughts(openai_request.model),
             }
-    
+
     return request_payload
 
 
-def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Dict[str, Any]:
+def gemini_response_to_openai(gemini_response: dict[str, Any], model: str) -> dict[str, Any]:
     """
     Transform a Gemini API response to OpenAI chat completion format.
-    
+
     Args:
         gemini_response: Response from Gemini API
         model: Model name to include in response
-        
+
     Returns:
         Dictionary in OpenAI chat completion format
     """
     choices = []
-    
+
     for candidate in gemini_response.get("candidates", []):
         role = candidate.get("content", {}).get("role", "assistant")
-        
+
         # Map Gemini roles back to OpenAI roles
         if role == "model":
             role = "assistant"
-        
+
         # Extract and separate thinking tokens from regular content
         parts = candidate.get("content", {}).get("parts", [])
         content_parts = []
         reasoning_content = ""
-        
+
         for part in parts:
             # Text parts (may include thinking tokens)
             if part.get("text") is not None:
@@ -290,23 +290,23 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
                 continue
 
         content = "\n\n".join([p for p in content_parts if p is not None])
-        
+
         # Build message object
         message = {
             "role": role,
             "content": content,
         }
-        
+
         # Add reasoning_content if there are thinking tokens
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
-        
+
         choices.append({
             "index": candidate.get("index", 0),
             "message": message,
             "finish_reason": _map_finish_reason(candidate.get("finishReason")),
         })
-    
+
     return {
         "id": str(uuid.uuid4()),
         "object": "chat.completion",
@@ -316,32 +316,32 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
     }
 
 
-def gemini_stream_chunk_to_openai(gemini_chunk: Dict[str, Any], model: str, response_id: str) -> Dict[str, Any]:
+def gemini_stream_chunk_to_openai(gemini_chunk: dict[str, Any], model: str, response_id: str) -> dict[str, Any]:
     """
     Transform a Gemini streaming response chunk to OpenAI streaming format.
-    
+
     Args:
         gemini_chunk: Single chunk from Gemini streaming response
         model: Model name to include in response
         response_id: Consistent ID for this streaming response
-        
+
     Returns:
         Dictionary in OpenAI streaming format
     """
     choices = []
-    
+
     for candidate in gemini_chunk.get("candidates", []):
         role = candidate.get("content", {}).get("role", "assistant")
-        
+
         # Map Gemini roles back to OpenAI roles
         if role == "model":
             role = "assistant"
-        
+
         # Extract and separate thinking tokens from regular content
         parts = candidate.get("content", {}).get("parts", [])
         content_parts = []
         reasoning_content = ""
-        
+
         for part in parts:
             # Text parts (may include thinking tokens)
             if part.get("text") is not None:
@@ -361,20 +361,20 @@ def gemini_stream_chunk_to_openai(gemini_chunk: Dict[str, Any], model: str, resp
                 continue
 
         content = "\n\n".join([p for p in content_parts if p is not None])
-        
+
         # Build delta object
         delta = {}
         if content:
             delta["content"] = content
         if reasoning_content:
             delta["reasoning_content"] = reasoning_content
-        
+
         choices.append({
             "index": candidate.get("index", 0),
             "delta": delta,
             "finish_reason": _map_finish_reason(candidate.get("finishReason")),
         })
-    
+
     return {
         "id": response_id,
         "object": "chat.completion.chunk",
@@ -384,13 +384,13 @@ def gemini_stream_chunk_to_openai(gemini_chunk: Dict[str, Any], model: str, resp
     }
 
 
-def _map_finish_reason(gemini_reason: str) -> str:
+def _map_finish_reason(gemini_reason: str) -> str | None:
     """
     Map Gemini finish reasons to OpenAI finish reasons.
-    
+
     Args:
         gemini_reason: Finish reason from Gemini API
-        
+
     Returns:
         OpenAI-compatible finish reason
     """

@@ -1,5 +1,7 @@
 import platform
+
 from .config import CLI_VERSION
+
 
 def get_user_agent():
     """Generate User-Agent string matching gemini-cli format."""
@@ -8,11 +10,12 @@ def get_user_agent():
     arch = platform.machine()
     return f"GeminiCLI/{version} ({system}; {arch})"
 
+
 def get_platform_string():
     """Generate platform string matching gemini-cli format."""
     system = platform.system().upper()
     arch = platform.machine().upper()
-    
+
     # Map to gemini-cli platform format
     if system == "DARWIN":
         if arch in ["ARM64", "AARCH64"]:
@@ -28,6 +31,7 @@ def get_platform_string():
         return "WINDOWS_AMD64"
     else:
         return "PLATFORM_UNSPECIFIED"
+
 
 def get_client_metadata(project_id=None):
     return {
