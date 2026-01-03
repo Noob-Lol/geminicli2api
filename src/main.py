@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         from .config import CREDENTIAL_FILE
 
         env_creds_json = os.getenv("GEMINI_CREDENTIALS")
-        creds_file_exists = os.path.exists(CREDENTIAL_FILE)
+        creds_file_exists = os.path.exists(CREDENTIAL_FILE)  # noqa: ASYNC240
 
         # Calculate auth port
         app_port = int(os.getenv("PORT", "8888"))
@@ -132,8 +132,14 @@ async def handle_preflight(request: Request, full_path: str):
     )
 
 
+@app.head("/{full_path:path}")
+async def handle_head(request: Request, full_path: str):
+    """Handle HEAD requests without authentication."""
+    return Response(status_code=200)
+
+
 # Root endpoint - no authentication required
-@app.api_route("/", methods=["GET", "HEAD"])
+@app.get("/")
 async def root():
     """
     Root endpoint providing project information.
@@ -162,7 +168,7 @@ async def root():
 
 
 # Health check endpoint for Docker/Hugging Face
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
 async def health_check():
     """Health check endpoint for container orchestration."""
     return {"status": "healthy", "service": "geminicli2api"}

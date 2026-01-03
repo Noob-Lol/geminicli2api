@@ -3,6 +3,7 @@ OpenAI API Routes - Handles OpenAI-compatible endpoints.
 This module provides OpenAI-compatible endpoints that transform requests/responses
 and delegate to the Google API client.
 """
+
 import asyncio
 import json
 import logging
@@ -133,7 +134,7 @@ async def openai_chat_completions(
                             error_data = json.loads(error_body)
                             if "error" in error_data:
                                 error_msg = error_data["error"].get("message", error_msg)
-                        except:
+                        except Exception:
                             pass
 
                     logging.error(f"Streaming request failed: {error_msg}")
@@ -186,7 +187,10 @@ async def openai_chat_completions(
                         openai_error = {
                             "error": {
                                 "message": error_data["error"].get("message", f"API error: {response.status_code}"),
-                                "type": error_data["error"].get("type", "invalid_request_error" if response.status_code == 404 else "api_error"),
+                                "type": error_data["error"].get(
+                                    "type",
+                                    "invalid_request_error" if response.status_code == 404 else "api_error",
+                                ),
                                 "code": error_data["error"].get("code", response.status_code),
                             },
                         }
@@ -251,8 +255,8 @@ async def openai_chat_completions(
             )
 
 
-@router.api_route("/v1/models", methods=["GET", "HEAD"])
-async def openai_list_models(username: str = Depends(authenticate_user)):
+@router.get("/v1/models")
+async def openai_list_models(request: Request):
     """
     OpenAI-compatible models endpoint.
     Returns available models in OpenAI format.

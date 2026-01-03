@@ -468,7 +468,7 @@ async def onboard_user(creds, project_id, session: aiohttp.ClientSession):
             creds.refresh(GoogleAuthRequest())
             save_credentials(creds)
         except Exception as e:
-            raise Exception(f"Failed to refresh credentials during onboarding: {str(e)}")
+            raise Exception(f"Failed to refresh credentials during onboarding: {str(e)}") from e
     headers = {
         "Authorization": f"Bearer {creds.token}",
         "Content-Type": "application/json",
@@ -535,9 +535,9 @@ async def onboard_user(creds, project_id, session: aiohttp.ClientSession):
             await asyncio.sleep(5)
 
     except aiohttp.ClientError as e:
-        raise Exception(f"User onboarding failed: {str(e)}")
+        raise Exception(f"User onboarding failed: {str(e)}") from e
     except Exception as e:
-        raise Exception(f"User onboarding failed due to an unexpected error: {str(e)}")
+        raise Exception(f"User onboarding failed due to an unexpected error: {str(e)}") from e
 
 
 async def get_user_project_id(creds, session: aiohttp.ClientSession):
@@ -558,9 +558,9 @@ async def get_user_project_id(creds, session: aiohttp.ClientSession):
         return user_project_id
 
     # Priority 2: Check cached project ID in credential file
-    if os.path.exists(CREDENTIAL_FILE):
+    if os.path.exists(CREDENTIAL_FILE):  # noqa: ASYNC240
         try:
-            with open(CREDENTIAL_FILE) as f:
+            with open(CREDENTIAL_FILE) as f:  # noqa: ASYNC230
                 creds_data = json.load(f)
                 cached_project_id = creds_data.get("project_id")
                 if cached_project_id:
@@ -616,7 +616,7 @@ async def get_user_project_id(creds, session: aiohttp.ClientSession):
         return user_project_id
     except aiohttp.ClientError as e:
         logging.error(f"HTTP error during project ID discovery: {e}")
-        raise Exception(f"Failed to discover project ID via API: {e}")
+        raise Exception(f"Failed to discover project ID via API: {e}") from e
     except Exception as e:
         logging.error(f"Unexpected error during project ID discovery: {e}")
-        raise Exception(f"Failed to discover project ID: {e}")
+        raise Exception(f"Failed to discover project ID: {e}") from e

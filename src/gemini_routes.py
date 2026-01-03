@@ -16,8 +16,8 @@ from .google_api_client import build_gemini_payload_from_native, send_gemini_req
 router = APIRouter()
 
 
-@router.api_route("/v1beta/models", methods=["GET", "HEAD"])
-async def gemini_list_models(request: Request, username: str = Depends(authenticate_user)):
+@router.get("/v1beta/models")
+async def gemini_list_models(request: Request):
     """
     Native Gemini models endpoint.
     Returns available models in Gemini format, matching the official Gemini API.
@@ -50,7 +50,7 @@ async def gemini_list_models(request: Request, username: str = Depends(authentic
         )
 
 
-@router.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
+@router.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def gemini_proxy(request: Request, full_path: str, username: str = Depends(authenticate_user)):
     """
     Native Gemini API proxy endpoint.
@@ -170,17 +170,17 @@ def _extract_model_from_path(path: str) -> str | None:
     return None
 
 
-@router.api_route("/v1/models", methods=["GET", "HEAD"])
-async def gemini_list_models_v1(request: Request, username: str = Depends(authenticate_user)):
+@router.get("/v1/models")
+async def gemini_list_models_v1(request: Request):
     """
     Alternative models endpoint for v1 API version.
     Some clients might use /v1/models instead of /v1beta/models.
     """
-    return await gemini_list_models(request, username)
+    return await gemini_list_models(request)
 
 
 # Health check endpoint
-@router.api_route("/health", methods=["GET", "HEAD"])
+@router.get("/health")
 async def health_check():
     """
     Simple health check endpoint.
