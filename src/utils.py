@@ -1,6 +1,13 @@
+import logging
 import platform
 
 from .config import CLI_VERSION
+
+logger = logging.getLogger("geminicli2api")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 
 def get_user_agent():
@@ -18,19 +25,16 @@ def get_platform_string():
 
     # Map to gemini-cli platform format
     if system == "DARWIN":
-        if arch in ["ARM64", "AARCH64"]:
+        if arch in {"ARM64", "AARCH64"}:
             return "DARWIN_ARM64"
-        else:
-            return "DARWIN_AMD64"
-    elif system == "LINUX":
-        if arch in ["ARM64", "AARCH64"]:
+        return "DARWIN_AMD64"
+    if system == "LINUX":
+        if arch in {"ARM64", "AARCH64"}:
             return "LINUX_ARM64"
-        else:
-            return "LINUX_AMD64"
-    elif system == "WINDOWS":
+        return "LINUX_AMD64"
+    if system == "WINDOWS":
         return "WINDOWS_AMD64"
-    else:
-        return "PLATFORM_UNSPECIFIED"
+    return "PLATFORM_UNSPECIFIED"
 
 
 def get_client_metadata(project_id=None):

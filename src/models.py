@@ -4,10 +4,22 @@ from pydantic import BaseModel
 
 
 # OpenAI Models
+class OpenAIToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: dict[str, Any]
+
+
 class OpenAIChatMessage(BaseModel):
     role: str
-    content: str | list[dict[str, Any]]
+    content: str | list[dict[str, Any]] | None = None
     reasoning_content: str | None = None
+    tool_calls: list[OpenAIToolCall] | None = None
+    tool_call_id: str | None = None
+    thought_signature: str | None = None
+
+    class Config:
+        extra = "allow"
 
 
 class OpenAIChatCompletionRequest(BaseModel):
@@ -24,6 +36,8 @@ class OpenAIChatCompletionRequest(BaseModel):
     seed: int | None = None
     response_format: dict[str, Any] | None = None
     reasoning_effort: str | None = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
 
     class Config:
         extra = "allow"  # Allow additional fields not explicitly defined
@@ -46,6 +60,9 @@ class OpenAIChatCompletionResponse(BaseModel):
 class OpenAIDelta(BaseModel):
     content: str | None = None
     reasoning_content: str | None = None
+    tool_calls: list[OpenAIToolCall] | None = None
+    role: str | None = None
+    thought_signature: str | None = None
 
 
 class OpenAIChatCompletionStreamChoice(BaseModel):
@@ -64,7 +81,9 @@ class OpenAIChatCompletionStreamResponse(BaseModel):
 
 # Gemini Models
 class GeminiPart(BaseModel):
-    text: str
+    text: str | None = None
+    functionCall: dict[str, Any] | None = None
+    functionResponse: dict[str, Any] | None = None
 
 
 class GeminiContent(BaseModel):

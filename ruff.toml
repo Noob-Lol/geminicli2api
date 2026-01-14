@@ -1,7 +1,9 @@
 line-length = 127
 [lint]
-select = ["C4", "E", "W", "F", "UP", "B", "COM", "I", "ASYNC", "Q"]
-ignore = ["E501", "S104"]
+select = ["C4", "E", "W", "F", "UP", "B", "COM", "I", "ASYNC", "Q",
+    "SIM", "PTH", "FURB", "PERF", "RET", "PLR", "LOG", "FBT", "DTZ", "PYI", "RUF",
+    "G", "TRY", "PLE", "EM", "FAST", "A", "TC"]
+ignore = ["E501", "S104", "PERF203", "PLR2004", "PLR0904"]
 preview = true
 [format]
 preview = true

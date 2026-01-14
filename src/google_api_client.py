@@ -5,7 +5,6 @@ This module is used by both OpenAI compatibility layer and native Gemini endpoin
 
 import asyncio
 import json
-import logging
 
 import aiohttp
 from fastapi import Response
@@ -21,10 +20,10 @@ from .config import (
     is_search_model,
     should_include_thoughts,
 )
-from .utils import get_user_agent
+from .utils import get_user_agent, logger
 
 
-async def send_gemini_request(payload: dict, session: aiohttp.ClientSession, is_streaming: bool = False) -> Response:
+async def send_gemini_request(payload: dict, session: aiohttp.ClientSession, *, is_streaming: bool = False) -> Response:
     """
     Send a request to Google's Gemini API.
 
@@ -94,20 +93,19 @@ async def send_gemini_request(payload: dict, session: aiohttp.ClientSession, is_
     try:
         if is_streaming:
             return _handle_streaming_response(session, target_url, final_post_data, request_headers)
-        else:
-            async with session.post(target_url, data=final_post_data, headers=request_headers) as resp:
-                return await _handle_non_streaming_response(resp)
+        async with session.post(target_url, data=final_post_data, headers=request_headers) as resp:
+            return await _handle_non_streaming_response(resp)
     except aiohttp.ClientError as e:
-        logging.error(f"Request to Google API failed: {str(e)}")
+        logger.error(f"Request to Google API failed: {e!s}")
         return Response(
-            content=json.dumps({"error": {"message": f"Request failed: {str(e)}"}}),
+            content=json.dumps({"error": {"message": f"Request failed: {e!s}"}}),
             status_code=500,
             media_type="application/json",
         )
     except Exception as e:
-        logging.error(f"Unexpected error during Google API request: {str(e)}")
+        logger.error(f"Unexpected error during Google API request: {e!s}")
         return Response(
-            content=json.dumps({"error": {"message": f"Unexpected error: {str(e)}"}}),
+            content=json.dumps({"error": {"message": f"Unexpected error: {e!s}"}}),
             status_code=500,
             media_type="application/json",
         )
@@ -121,14 +119,14 @@ def _handle_streaming_response(session: aiohttp.ClientSession, url: str, data: s
             async with session.post(url, data=data, headers=headers) as resp:
                 # Check for HTTP errors before starting to stream
                 if resp.status != 200:
-                    logging.error(f"Google API returned status {resp.status}: {await resp.text()}")
+                    logger.error(f"Google API returned status {resp.status}: {await resp.text()}")
                     error_message = f"Google API error: {resp.status}"
                     try:
                         error_data = await resp.json()
                         if "error" in error_data:
                             error_message = error_data["error"].get("message", error_message)
                     except Exception as e:
-                        logging.error(f"Error parsing error response: {e}")
+                        logger.error(f"Error parsing error response: {e}")
 
                     error_response = {
                         "error": {
@@ -172,20 +170,20 @@ def _handle_streaming_response(session: aiohttp.ClientSession, url: str, data: s
                             continue
 
         except aiohttp.ClientError as e:
-            logging.error(f"Streaming request failed: {str(e)}")
+            logger.error(f"Streaming request failed: {e!s}")
             error_response = {
                 "error": {
-                    "message": f"Upstream request failed: {str(e)}",
+                    "message": f"Upstream request failed: {e!s}",
                     "type": "api_error",
                     "code": 502,
                 },
             }
             yield f"data: {json.dumps(error_response)}\n\n".encode("utf-8", "ignore")
         except Exception as e:
-            logging.error(f"Unexpected error during streaming: {str(e)}")
+            logger.error(f"Unexpected error during streaming: {e!s}")
             error_response = {
                 "error": {
-                    "message": f"An unexpected error occurred: {str(e)}",
+                    "message": f"An unexpected error occurred: {e!s}",
                     "type": "api_error",
                     "code": 500,
                 },
@@ -214,8 +212,7 @@ async def _handle_non_streaming_response(resp: aiohttp.ClientResponse) -> Respon
     if resp.status == 200:
         try:
             google_api_response = await resp.text()
-            if google_api_response.startswith("data: "):
-                google_api_response = google_api_response[len("data: ") :]
+            google_api_response = google_api_response.removeprefix("data: ")
             google_api_response = json.loads(google_api_response)
             standard_gemini_response = google_api_response.get("response")
             return Response(
@@ -224,7 +221,7 @@ async def _handle_non_streaming_response(resp: aiohttp.ClientResponse) -> Respon
                 media_type="application/json; charset=utf-8",
             )
         except (json.JSONDecodeError, AttributeError) as e:
-            logging.error(f"Failed to parse Google API response: {str(e)}")
+            logger.error(f"Failed to parse Google API response: {e!s}")
             return Response(
                 content=await resp.read(),
                 status_code=resp.status,
@@ -233,7 +230,7 @@ async def _handle_non_streaming_response(resp: aiohttp.ClientResponse) -> Respon
     else:
         # Log the error details
         text = await resp.text()
-        logging.error(f"Google API returned status {resp.status}: {text}")
+        logger.error(f"Google API returned status {resp.status}: {text}")
 
         # Try to parse error response and provide meaningful error message
         try:

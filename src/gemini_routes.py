@@ -5,13 +5,13 @@ without any format transformations.
 """
 
 import json
-import logging
 
 from fastapi import APIRouter, Depends, Request, Response
 
 from .auth import authenticate_user
 from .config import SUPPORTED_MODELS
 from .google_api_client import build_gemini_payload_from_native, send_gemini_request
+from .utils import logger
 
 router = APIRouter()
 
@@ -24,24 +24,24 @@ async def gemini_list_models(request: Request):
     """
 
     try:
-        logging.info("Gemini models list requested")
+        logger.info("Gemini models list requested")
 
         models_response = {
             "models": SUPPORTED_MODELS,
         }
 
-        logging.info(f"Returning {len(SUPPORTED_MODELS)} Gemini models")
+        logger.info(f"Returning {len(SUPPORTED_MODELS)} Gemini models")
         return Response(
             content=json.dumps(models_response),
             status_code=200,
             media_type="application/json; charset=utf-8",
         )
     except Exception as e:
-        logging.error(f"Failed to list Gemini models: {str(e)}")
+        logger.error(f"Failed to list Gemini models: {e!s}")
         return Response(
             content=json.dumps({
                 "error": {
-                    "message": f"Failed to list models: {str(e)}",
+                    "message": f"Failed to list models: {e!s}",
                     "code": 500,
                 },
             }),
@@ -74,10 +74,10 @@ async def gemini_proxy(request: Request, full_path: str, username: str = Depends
         # Paths typically look like: v1beta/models/gemini-1.5-pro/generateContent
         model_name = _extract_model_from_path(full_path)
 
-        logging.info(f"Gemini proxy request: path={full_path}, model={model_name}, stream={is_streaming}")
+        logger.info(f"Gemini proxy request: path={full_path}, model={model_name}, stream={is_streaming}")
 
         if not model_name:
-            logging.error(f"Could not extract model name from path: {full_path}")
+            logger.error(f"Could not extract model name from path: {full_path}")
             return Response(
                 content=json.dumps({
                     "error": {
@@ -91,12 +91,9 @@ async def gemini_proxy(request: Request, full_path: str, username: str = Depends
 
         # Parse the incoming request
         try:
-            if post_data:
-                incoming_request = json.loads(post_data)
-            else:
-                incoming_request = {}
+            incoming_request = json.loads(post_data) if post_data else {}
         except json.JSONDecodeError as e:
-            logging.error(f"Invalid JSON in request body: {str(e)}")
+            logger.error(f"Invalid JSON in request body: {e!s}")
             return Response(
                 content=json.dumps({
                     "error": {
@@ -117,24 +114,22 @@ async def gemini_proxy(request: Request, full_path: str, username: str = Depends
         # Log the response status
         if hasattr(response, "status_code"):
             if response.status_code != 200:
-                logging.error(f"Gemini API returned error: status={response.status_code}")
+                logger.error(f"Gemini API returned error: status={response.status_code}")
             else:
-                logging.info(f"Successfully processed Gemini request for model: {model_name}")
-
-        return response
-
+                logger.info(f"Successfully processed Gemini request for model: {model_name}")
     except Exception as e:
-        logging.error(f"Gemini proxy error: {str(e)}")
+        logger.error(f"Gemini proxy error: {e!s}")
         return Response(
             content=json.dumps({
                 "error": {
-                    "message": f"Proxy error: {str(e)}",
+                    "message": f"Proxy error: {e!s}",
                     "code": 500,
                 },
             }),
             status_code=500,
             media_type="application/json",
         )
+    return response
 
 
 def _extract_model_from_path(path: str) -> str | None:
