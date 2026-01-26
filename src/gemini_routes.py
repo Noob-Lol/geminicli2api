@@ -62,6 +62,18 @@ async def gemini_proxy(request: Request, full_path: str, username: str = Depends
     - /v1/models/{model}/generateContent
     - etc.
     """
+    # Validate path pattern to ensure we only proxy legitimate Gemini API requests
+    if not (full_path.startswith("v1beta/models/") or full_path.startswith("v1/models/")):
+        return Response(
+            content=json.dumps({
+                "error": {
+                    "message": f"Path not found: {full_path}",
+                    "code": 404,
+                },
+            }),
+            status_code=404,
+            media_type="application/json",
+        )
 
     try:
         # Get the request body

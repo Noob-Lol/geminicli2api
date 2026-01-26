@@ -20,6 +20,9 @@ from .config import (
 )
 from .models import OpenAIChatCompletionRequest, OpenAIChatMessage
 
+# Module-level regex for Markdown images
+IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+
 
 def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> dict[str, Any]:
     """
@@ -69,40 +72,50 @@ def _process_messages(messages: list[OpenAIChatMessage]) -> list[dict[str, Any]]
     # Map tool_call_id to function name from assistant messages
     tool_id_to_name = {}
 
-    for message in messages:
+    i = 0
+    while i < len(messages):
+        message = messages[i]
+
         # 1. Capture tool definitions from assistant messages
         if message.role == "assistant" and message.tool_calls:
             for tool_call in message.tool_calls:
                 tool_id_to_name[tool_call.id] = tool_call.function["name"]
 
-        # 2. Process the message
-        gemini_msg = _process_single_message(message)
+        # 2. Check if it is a tool response
+        if message.role == "tool":
+            # Start collecting consecutive tool messages
+            tool_parts = []
+            while i < len(messages) and messages[i].role == "tool":
+                tool_msg = messages[i]
+                fn_name = tool_id_to_name.get(tool_msg.tool_call_id, "unknown_function")
 
-        # 3. Fix up tool responses (add function name)
-        if message.role == "tool" and message.tool_call_id:
-            # It's a tool response. We need to wrap the content in functionResponse
-            # and hopefully we found the name.
-            fn_name = tool_id_to_name.get(message.tool_call_id, "unknown_function")
+                # The content in OpenAI is usually a string (JSON).
+                # Gemini expects 'response' to be a dict (struct).
+                response_content = _parse_json_safe(tool_msg.content) if tool_msg.content else {}
+                if not isinstance(response_content, (dict, list)):
+                    # If primitive, wrap it
+                    response_content = {"result": response_content}
 
-            # The content in OpenAI is usually a string (JSON).
-            # Gemini expects 'response' to be a dict (struct).
-            response_content = _parse_json_safe(message.content) if message.content else {}
-            if not isinstance(response_content, (dict, list)):
-                # If primitive, wrap it
-                response_content = {"result": response_content}
-
-            gemini_msg["parts"] = [
-                {
+                tool_parts.append({
                     "functionResponse": {
                         "name": fn_name,
                         "response": response_content,
                     },
-                },
-            ]
-            # Ensure role is 'user' (Gemini spec for functionResponse)
-            gemini_msg["role"] = "user"
+                })
+                i += 1
 
+            # Append ONE message with ALL tool parts
+            contents.append({
+                "role": "user",
+                "parts": tool_parts,
+            })
+            # Continue to next iteration (i is already incremented)
+            continue
+
+        # 3. Process normal message
+        gemini_msg = _process_single_message(message)
         contents.append(gemini_msg)
+        i += 1
 
     return contents
 
@@ -206,10 +219,8 @@ def _extract_text_parts(text: str) -> list[dict[str, Any]]:
     """Extracts text and inline images from markdown text."""
     parts = []
     # Convert Markdown images: ![alt](data:<mimeType>;base64,<data>)
-    # Fixed regex to avoid nested set warning
-    pattern = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
     last_idx = 0
-    for m in pattern.finditer(text):
+    for m in IMAGE_PATTERN.finditer(text):
         url = m.group(1).strip().strip('"').strip("'")
         if m.start() > last_idx:
             before = text[last_idx : m.start()]
@@ -404,6 +415,76 @@ def _process_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         role = "assistant"
 
     parts = candidate.get("content", {}).get("parts", [])
+    data = _extract_parts_data(parts)
+    finish_reason = _map_finish_reason(candidate.get("finishReason"))
+
+    message = {
+        "role": role,
+        "content": data["content"],
+    }
+    if data["reasoning_content"]:
+        message["reasoning_content"] = data["reasoning_content"]
+    if data["thought_signature"]:
+        message["thought_signature"] = data["thought_signature"]
+    if data["tool_calls"]:
+        message["tool_calls"] = data["tool_calls"]
+        # set correct finish reason
+        finish_reason = "tool_calls"
+        if message["content"] is None:
+            message["content"] = None  # Explicitly set null if not present
+
+    return {
+        "index": candidate.get("index", 0),
+        "message": message,
+        "finish_reason": finish_reason,
+    }
+
+
+def gemini_stream_chunk_to_openai(gemini_chunk: dict[str, Any], model: str, response_id: str) -> dict[str, Any]:
+    """
+    Transform a Gemini streaming response chunk to OpenAI streaming format.
+    """
+    choices = []
+
+    for candidate in gemini_chunk.get("candidates", []):
+        role = candidate.get("content", {}).get("role", "assistant")
+        if role == "model":
+            role = "assistant"
+
+        parts = candidate.get("content", {}).get("parts", [])
+        data = _extract_parts_data(parts)
+        finish_reason = _map_finish_reason(candidate.get("finishReason"))
+
+        delta = {}
+        if data["content"]:
+            delta["content"] = data["content"]
+        if data["reasoning_content"]:
+            delta["reasoning_content"] = data["reasoning_content"]
+        if data["tool_calls"]:
+            delta["tool_calls"] = data["tool_calls"]
+            finish_reason = "tool_calls"
+            if delta["content"] is None:
+                delta["content"] = None
+        if data["thought_signature"]:
+            delta["thought_signature"] = data["thought_signature"]
+
+        choices.append({
+            "index": candidate.get("index", 0),
+            "delta": delta,
+            "finish_reason": finish_reason,
+        })
+
+    return {
+        "id": response_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": choices,
+    }
+
+
+def _extract_parts_data(parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Extracts content, thoughts, and tool calls from Gemini parts."""
     content_parts = []
     raw_reasoning_text = ""
     active_signature = None
@@ -423,8 +504,7 @@ def _process_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
                 content_parts.append(part.get("text", ""))
 
         # 2. Inline Images
-        elif part.get("inlineData"):
-            inline = part.get("inlineData")
+        elif inline := part.get("inlineData"):
             if inline and inline.get("data"):
                 mime = inline.get("mimeType") or "image/png"
                 if isinstance(mime, str) and mime.startswith("image/"):
@@ -432,117 +512,27 @@ def _process_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
                     content_parts.append(f"![image](data:{mime};base64,{data_b64})")
 
         # 3. Function Calls
-        elif part.get("functionCall"):
-            fc = part.get("functionCall")
+        elif fc := part.get("functionCall"):
             tool_calls.append({
-                "id": "call_" + str(uuid.uuid4())[:8],  # Gemini doesn't provide ID, so generate one
+                "id": "call_" + str(uuid.uuid4())[:8],
                 "type": "function",
                 "function": {
                     "name": fc.get("name"),
-                    "arguments": import_json_dumps(fc.get("args", {})),  # OpenAI expects arguments as JSON string
+                    "arguments": json.dumps(fc.get("args", {})),
                 },
             })
 
-    content = "\n\n".join([p for p in content_parts if p]) if content_parts else None
-    # Construct reasoning content (clean, without signature prefix)
-    reasoning_content = raw_reasoning_text
-    message = {
-        "role": role,
-        "content": content,
-    }
-    if reasoning_content:
-        message["reasoning_content"] = reasoning_content
-    # Store signature in a dedicated field
-    if active_signature:
-        message["thought_signature"] = active_signature
-    if tool_calls:
-        message["tool_calls"] = tool_calls
-        if content is None:
-            message["content"] = None  # OpenAI allows null content if tool_calls exist
     return {
-        "index": candidate.get("index", 0),
-        "message": message,
-        "finish_reason": _map_finish_reason(candidate.get("finishReason")),
-    }
-
-
-def import_json_dumps(obj: Any) -> str:
-    return json.dumps(obj)
-
-
-def gemini_stream_chunk_to_openai(gemini_chunk: dict[str, Any], model: str, response_id: str) -> dict[str, Any]:
-    """
-    Transform a Gemini streaming response chunk to OpenAI streaming format.
-    """
-    choices = []
-
-    for candidate in gemini_chunk.get("candidates", []):
-        role = candidate.get("content", {}).get("role", "assistant")
-        if role == "model":
-            role = "assistant"
-
-        parts = candidate.get("content", {}).get("parts", [])
-        content_parts = []
-        raw_reasoning_text = ""
-        active_signature = None
-        tool_calls = []
-
-        for part in parts:
-            # Check for signature in ANY part
-            sig = part.get("thoughtSignature") or part.get("thought_signature")
-            if sig:
-                active_signature = sig
-
-            if part.get("text") is not None:
-                if part.get("thought", False):
-                    raw_reasoning_text += part.get("text", "")
-                else:
-                    content_parts.append(part.get("text", ""))
-            elif part.get("functionCall"):
-                # Handle streaming function call
-                # Note: Gemini often sends full function call in one chunk in streaming too.
-                # If it splits, we might need state, but usually it's full.
-                fc = part.get("functionCall")
-                tool_calls.append({
-                    "id": "call_" + str(uuid.uuid4())[:8],
-                    "type": "function",
-                    "function": {
-                        "name": fc.get("name"),
-                        "arguments": import_json_dumps(fc.get("args", {})),
-                    },
-                })
-
-        content = "\n\n".join([p for p in content_parts if p])
-
-        reasoning_content = raw_reasoning_text
-
-        delta = {}
-        if content:
-            delta["content"] = content
-        if reasoning_content:
-            delta["reasoning_content"] = reasoning_content
-        if tool_calls:
-            delta["tool_calls"] = tool_calls
-        if active_signature:
-            delta["thought_signature"] = active_signature
-
-        choices.append({
-            "index": candidate.get("index", 0),
-            "delta": delta,
-            "finish_reason": _map_finish_reason(candidate.get("finishReason")),
-        })
-
-    return {
-        "id": response_id,
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": choices,
+        "content": "\n\n".join([p for p in content_parts if p]) if content_parts else None,
+        "reasoning_content": raw_reasoning_text,
+        "thought_signature": active_signature,
+        "tool_calls": tool_calls,
     }
 
 
 def _map_finish_reason(gemini_reason: str | None) -> str | None:
     """Map Gemini finish reasons to OpenAI finish reasons."""
+    # print(f"Mapping finish reason: {gemini_reason}")
     if not gemini_reason:
         return None
     if gemini_reason == "STOP":

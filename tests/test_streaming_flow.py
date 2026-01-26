@@ -150,19 +150,19 @@ def test_streaming_reconstruction():
 
     # Check signature placement
     if "thoughtSignature" in fc_part:
-        print(f"✅ Signature found in functionCall: {fc_part['thoughtSignature']}")
+        print(f"Signature found in functionCall: {fc_part['thoughtSignature']}")
         assert fc_part["thoughtSignature"] == "streamed_signature_999"
     else:
         # Check thought part
         thought_part = next((p for p in parts if "thought" in p), None)
         if thought_part and "thoughtSignature" in thought_part:
-            print(f"⚠️ Signature found in thought part: {thought_part['thoughtSignature']}")
+            print(f"Signature found in thought part: {thought_part['thoughtSignature']}")
             msg = "Signature should be in functionCall part when tool calls exist"
             raise AssertionError(msg)
         msg = "Signature MISSING completely in Gemini message"
         raise AssertionError(msg)
 
-    print("🎉 Streaming Test Passed!")
+    print("Streaming Test Passed!")
 
 
 def test_streaming_reconstruction_no_reasoning_content():
@@ -199,7 +199,7 @@ def test_streaming_reconstruction_no_reasoning_content():
     fc_part = next((p for p in parts if "functionCall" in p), None)
     assert fc_part
     assert fc_part["thoughtSignature"] == "signature_without_text"
-    print("✅ Signature correctly attached to functionCall even without reasoning text.")
+    print("Signature correctly attached to functionCall even without reasoning text.")
 
 
 if __name__ == "__main__":
@@ -207,10 +207,10 @@ if __name__ == "__main__":
         test_streaming_reconstruction()
         test_streaming_reconstruction_no_reasoning_content()
     except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
+        print(f"\nTEST FAILED: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\nERROR: {e}")
         import traceback
 
         traceback.print_exc()

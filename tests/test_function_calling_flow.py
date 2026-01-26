@@ -128,19 +128,19 @@ def test_openai_to_gemini_with_signature(assistant_message_data):
     assert fr["name"] == "get_weather", "Correct function name resolved"
     assert fr["response"]["temperature"] == "15C", "Response content preserved"
 
-    print("✅ Test 2 Passed: Signature restored to correct part and functionResponse formatted correctly.")
+    print("Test 2 Passed: Signature restored to correct part and functionResponse formatted correctly.")
 
 
 if __name__ == "__main__":
     try:
         assistant_msg = test_gemini_to_openai_with_signature()
         test_openai_to_gemini_with_signature(assistant_msg)
-        print("\n🎉 ALL TESTS PASSED")
+        print("\nALL TESTS PASSED")
     except AssertionError as e:
-        print(f"\n❌ TEST FAILED: {e}")
+        print(f"\nTEST FAILED: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\nERROR: {e}")
         import traceback
 
         traceback.print_exc()
