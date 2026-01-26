@@ -416,7 +416,6 @@ def _process_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
     parts = candidate.get("content", {}).get("parts", [])
     data = _extract_parts_data(parts)
-    finish_reason = _map_finish_reason(candidate.get("finishReason"))
 
     message = {
         "role": role,
@@ -426,13 +425,12 @@ def _process_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         message["reasoning_content"] = data["reasoning_content"]
     if data["thought_signature"]:
         message["thought_signature"] = data["thought_signature"]
-    if data["tool_calls"]:
-        message["tool_calls"] = data["tool_calls"]
-        # set correct finish reason
-        finish_reason = "tool_calls"
+    if tcdata := data["tool_calls"]:
+        message["tool_calls"] = tcdata
         if message["content"] is None:
             message["content"] = None  # Explicitly set null if not present
 
+    finish_reason = _map_finish_reason(candidate.get("finishReason"), tool_use=tcdata)
     return {
         "index": candidate.get("index", 0),
         "message": message,
@@ -453,20 +451,20 @@ def gemini_stream_chunk_to_openai(gemini_chunk: dict[str, Any], model: str, resp
 
         parts = candidate.get("content", {}).get("parts", [])
         data = _extract_parts_data(parts)
-        finish_reason = _map_finish_reason(candidate.get("finishReason"))
 
         delta = {}
         if data["content"]:
             delta["content"] = data["content"]
         if data["reasoning_content"]:
             delta["reasoning_content"] = data["reasoning_content"]
-        if data["tool_calls"]:
-            delta["tool_calls"] = data["tool_calls"]
-            finish_reason = "tool_calls"
+        if tcdata := data["tool_calls"]:
+            delta["tool_calls"] = tcdata
             if delta["content"] is None:
                 delta["content"] = None
         if data["thought_signature"]:
             delta["thought_signature"] = data["thought_signature"]
+
+        finish_reason = _map_finish_reason(candidate.get("finishReason"), tool_use=tcdata)
 
         choices.append({
             "index": candidate.get("index", 0),
@@ -530,12 +528,14 @@ def _extract_parts_data(parts: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _map_finish_reason(gemini_reason: str | None) -> str | None:
+def _map_finish_reason(gemini_reason: str | None, *, tool_use=False) -> str | None:
     """Map Gemini finish reasons to OpenAI finish reasons."""
     # print(f"Mapping finish reason: {gemini_reason}")
     if not gemini_reason:
         return None
     if gemini_reason == "STOP":
+        if tool_use:
+            return "tool_calls"
         return "stop"
     if gemini_reason == "MAX_TOKENS":
         return "length"
